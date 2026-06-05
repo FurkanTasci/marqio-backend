@@ -40,9 +40,6 @@ Route::middleware('auth:sanctum')->group(function () {
      * 
      *  - Top 20 USA
      *  GET /rss-sources/top?country_code=US&limit=20
-     * 
-     *  - Top 5 UK, only Featured
-     *  GET /rss-sources/top?country_code=UK&limit=5&
      */
 
 
