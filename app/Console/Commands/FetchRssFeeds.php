@@ -39,7 +39,9 @@ class FetchRssFeeds extends Command
         $count = 0;
         $errors = 0;
 
-        RssSource::where('is_active', true)
+        RssSource::whereHas('users', function ($query) {
+                $query->where('rss_source_user.is_active', true);
+            })
             ->chunk(100, function ($chunk) use (&$count, &$errors) {
                 foreach ($chunk as $source) {
                     try {
@@ -49,17 +51,17 @@ class FetchRssFeeds extends Command
                         $count++;
                         $this->info("Queued: {$source->url}");
                     } catch (\Exception $e) {
-                    $errors++;
-                    Log::error("Fehler beim Queuen des Feeds: {$source->url}", [
-                        'error'   => $e->getMessage(),
-                        'source_id' => $source->id ?? null,
-                        'trace'   => $e->getTraceAsString(),
-                    ]);
+                        $errors++;
+                        Log::error("Fehler beim Queuen des Feeds: {$source->url}", [
+                            'error' => $e->getMessage(),
+                            'source_id' => $source->id ?? null,
+                            'trace' => $e->getTraceAsString(),
+                        ]);
 
-                    $this->error("Fehler bei {$source->url}: " . $e->getMessage());
+                        $this->error("Fehler bei {$source->url}: " . $e->getMessage());
+                    }
                 }
-            }
-        });
+            });
 
         $this->newLine();
         $this->info("Fertig! {$count} Feeds erfolgreich in die Queue gestellt.");

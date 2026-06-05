@@ -27,13 +27,8 @@ class FetchFeedJob implements ShouldQueue
     public function handle(): void
     {
         try {
-            // Sicherstellen, dass die Quelle aktiv ist
-            if ($this->source->is_active) {
-                $feedItems = $this->fetchFeedItems($this->source);
-                Cache::put('rss_feed_' . md5($this->source->url), $feedItems, now()->addMinutes(10));
-            } else {
-                Log::info('Die RSS-Quelle ist nicht aktiv, Feed wird nicht abgerufen.', ['source' => $this->source->url]);
-            }
+            $feedItems = $this->fetchFeedItems($this->source);
+            Cache::put('rss_feed_' . md5($this->source->url), $feedItems, now()->addMinutes(10));
         } catch (\Exception $e) {
             Log::error('Fehler beim Abrufen des Feeds: ' . $this->source->url, ['error' => $e->getMessage()]);
         }
