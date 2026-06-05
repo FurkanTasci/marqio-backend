@@ -11,6 +11,7 @@ use Embed\Http\CurlClient;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Validation\Rule;
 use Inertia\Inertia;
 
 class BookmarkController extends Controller
@@ -35,7 +36,15 @@ class BookmarkController extends Controller
     public function store(Request $request)
     {
         $validated = $request->validate([
-            'url' => 'required|url|unique:bookmarks,url',
+            // 'url' => 'required|url|unique:bookmarks,url',
+            'url' => [
+            'required',
+                'url',
+                Rule::unique('bookmarks')
+                    ->where(fn ($query) =>
+                        $query->where('user_id', Auth::id())
+                ),
+            ],
             'is_favorite' => 'boolean',
             'tags' => 'nullable|array',
             'tags.*' => 'string',
@@ -157,6 +166,22 @@ class BookmarkController extends Controller
             $bookmark->load('tags'),
             201
         );
+    }
+
+    /**
+     * Wenn über das WebView Website als Bookmark gesetzt werden könnten man direkt 
+     * die Meta Tags extrahieren das der User sowieso denn CookieBanner zulässt.
+     * 
+     * Die App könnte einfach ein zusatz element wie:
+     * "webview" = []
+     * "webview = [
+     *  'title' => '',
+     *  ...
+     * ]
+     */
+    public function webViewBookmark()
+    {
+
     }
 
     /*

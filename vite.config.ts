@@ -21,20 +21,6 @@ export default defineConfig({
             formVariants: true,
         }),
     ],
-    // Uncomment the following lines to enable development server configuration
-    // server: {
-    //     host: '0.0.0.0',
-    //     port: 5173,
-    //     strictPort: true,
-
-    //     hmr: {
-    //         host: 'marqio',
-    //     },
-
-    //     cors: {
-    //         origin: ['http://marqio'],
-    //     },
-    // },
     esbuild: {
         jsx: 'automatic',
     },
