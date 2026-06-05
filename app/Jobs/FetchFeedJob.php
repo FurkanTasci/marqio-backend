@@ -2,8 +2,8 @@
 
 namespace App\Jobs;
 
-use SimplePie\SimplePie;
 use App\Models\RssSource;
+use App\Services\RssService;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Foundation\Queue\Queueable;
@@ -27,20 +27,13 @@ class FetchFeedJob implements ShouldQueue
     public function handle(): void
     {
         try {
-            $feedItems = $this->fetchFeedItems($this->source);
-            Cache::put('rss_feed_' . md5($this->source->url), $feedItems, now()->addMinutes(10));
+            $rssService = app(RssService::class);
+            $feedData = $rssService->fetchFeeds(collect([$this->source]));
+            $items = $feedData[0]['items'] ?? [];
+
+            Cache::put('rss_feed_data_' . $this->source->id, $items, now()->addMinutes(10));
         } catch (\Exception $e) {
             Log::error('Fehler beim Abrufen des Feeds: ' . $this->source->url, ['error' => $e->getMessage()]);
         }
-    }
-
-    private function fetchFeedItems(RssSource $source)
-    {
-        $feed = new SimplePie();
-        $feed->set_feed_url($source->url);
-        $feed->init();
-        $feed->handle_content_type();
-
-        return $feed->get_items();
     }
 }
