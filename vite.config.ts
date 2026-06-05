@@ -21,6 +21,19 @@ export default defineConfig({
             formVariants: true,
         }),
     ],
+    // server: {
+    //     host: '0.0.0.0',
+    //     port: 5173,
+    //     strictPort: true,
+
+    //     hmr: {
+    //         host: 'marqio',
+    //     },
+
+    //     cors: {
+    //         origin: ['http://marqio'],
+    //     },
+    // },
     esbuild: {
         jsx: 'automatic',
     },
