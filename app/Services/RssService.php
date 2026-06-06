@@ -16,9 +16,8 @@ class RssService
      * Uses optimized concurrent fetching for uncached sources.
      *
      * @param  Collection<int, RssSource>  $sources
-     * @return array
      */
-    public function fetchFeeds(Collection $sources): array
+    public function fetchFeeds(Collection $sources, bool $forceRefresh = false): array
     {
         $results = [];
         $uncachedSources = collect();
@@ -26,7 +25,7 @@ class RssService
         // 1. Check Cache
         foreach ($sources as $source) {
             $cacheKey = $this->getCacheKey($source);
-            $cachedData = Cache::get($cacheKey);
+            $cachedData = $forceRefresh ? null : Cache::get($cacheKey);
 
             if ($cachedData) {
                 // Return cached data immediately
@@ -47,6 +46,7 @@ class RssService
             foreach ($uncachedSources as $source) {
                 $requests[] = $pool->as($source->id)->get($source->url);
             }
+
             return $requests;
         });
 
@@ -74,9 +74,6 @@ class RssService
     /**
      * Sort results by the newest pubDate of each source's items.
      * Sources with the most recent articles appear first.
-     *
-     * @param  array  $results
-     * @return array
      */
     private function sortResultsByNewestPubDate(array $results): array
     {
@@ -84,7 +81,7 @@ class RssService
             // Get the newest pubDate from each source's items
             $newestA = $this->getNewestPubDate($a['items'] ?? []);
             $newestB = $this->getNewestPubDate($b['items'] ?? []);
-            
+
             // Sort in descending order (newest first)
             return $newestB <=> $newestA;
         });
@@ -94,9 +91,6 @@ class RssService
 
     /**
      * Get the newest pubDate timestamp from an array of items.
-     *
-     * @param  array  $items
-     * @return int
      */
     private function getNewestPubDate(array $items): int
     {
@@ -120,13 +114,13 @@ class RssService
         // Cache key depends on URL and User? Or just URL?
         // Original code used md5($source->url . $userId).
         // Since RssSource belongs to a user (based on previous code analysis), using source->id is safest/simplest unique key.
-        return 'rss_feed_data_' . $source->id;
+        return 'rss_feed_data_'.$source->id;
     }
 
     private function parseFeed(string $content, string $url): ?array
     {
         // Suppress SimplePie deprecated warnings if any
-        $feed = new SimplePie();
+        $feed = new SimplePie;
         $feed->set_raw_data($content);
         // We don't need file cache for SimplePie since we cache the final array result manually
         $feed->enable_cache(false);
@@ -135,18 +129,19 @@ class RssService
 
         if ($feed->error()) {
             Log::error('RSS Parse Error', ['url' => $url, 'error' => $feed->error()]);
+
             return null;
         }
 
         $items = [];
         foreach ($feed->get_items() as $item) {
             $image = $this->extractImage($item);
-            
+
             $items[] = [
                 'title' => $item->get_title(),
                 'link' => $item->get_link(),
                 'description' => strip_tags($item->get_description()),
-                'pubDate' => $item->get_date('Y-m-d H:i:s'),
+                'pubDate' => $item->get_gmdate(DATE_ATOM),
                 'image' => $image,
                 'thumbnail' => $image, // Alias für Kompatibilität
             ];
@@ -158,7 +153,7 @@ class RssService
     private function extractImage($item): ?string
     {
         // Versuche die Bild-URL zu extrahieren von verschiedenen Quellen
-        
+
         // 1. Versuche Image-URL aus dem Item zu bekommen
         if (method_exists($item, 'get_image_url')) {
             $imageUrl = $item->get_image_url();
@@ -166,7 +161,7 @@ class RssService
                 return $imageUrl;
             }
         }
-        
+
         // 2. Versuche Media RSS Enclosures (Bilder)
         $enclosures = $item->get_enclosures();
         if ($enclosures) {
@@ -177,7 +172,7 @@ class RssService
                 }
             }
         }
-        
+
         // 3. Versuche Bild aus der Beschreibung zu extrahieren (erste img Tag)
         $description = $item->get_description();
         if ($description && preg_match('/<img[^>]+src="([^">]+)"/', $description, $matches)) {
@@ -186,7 +181,7 @@ class RssService
                 return $imageUrl;
             }
         }
-        
+
         return null;
     }
 
@@ -194,32 +189,33 @@ class RssService
     {
         // Whitelist von gültigen Bildendungen
         $imageExtensions = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'bmp', 'ico'];
-        
+
         // Parse URL und extrahiere den Pfad
         $parsedUrl = parse_url($url);
         $path = $parsedUrl['path'] ?? '';
-        
+
         // Prüfe Dateiendung
         $extension = strtolower(pathinfo($path, PATHINFO_EXTENSION));
-        
+
         // Wenn klare Bildendung, akzeptieren
         if (in_array($extension, $imageExtensions)) {
             return true;
         }
-        
+
         // Wenn kein Query-String mit verdächtigen Parametern (z.B. cpx.php)
         if (str_ends_with($path, '.php') || str_ends_with($path, '.cgi') || str_ends_with($path, '.html')) {
             return false;
         }
-        
+
         // Für URLs ohne klare Bildendung: HEAD-Request mit Timeout
         try {
             $response = Http::timeout(2)->head($url);
             $contentType = $response->header('Content-Type') ?? '';
-            
+
             return str_starts_with($contentType, 'image/');
         } catch (\Exception $e) {
             Log::debug("Failed to validate image URL: {$url}", ['error' => $e->getMessage()]);
+
             return false;
         }
     }
@@ -230,6 +226,7 @@ class RssService
         usort($items, function ($a, $b) {
             $dateA = strtotime($a['pubDate'] ?? '1970-01-01 00:00:00');
             $dateB = strtotime($b['pubDate'] ?? '1970-01-01 00:00:00');
+
             return $dateB <=> $dateA; // Descending order
         });
 

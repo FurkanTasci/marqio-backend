@@ -4,10 +4,9 @@ namespace App\Jobs;
 
 use App\Models\RssSource;
 use App\Services\RssService;
-use Illuminate\Support\Facades\Cache;
-use Illuminate\Support\Facades\Log;
-use Illuminate\Foundation\Queue\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
+use Illuminate\Foundation\Queue\Queueable;
+use Illuminate\Support\Facades\Log;
 
 class FetchFeedJob implements ShouldQueue
 {
@@ -28,12 +27,9 @@ class FetchFeedJob implements ShouldQueue
     {
         try {
             $rssService = app(RssService::class);
-            $feedData = $rssService->fetchFeeds(collect([$this->source]));
-            $items = $feedData[0]['items'] ?? [];
-
-            Cache::put('rss_feed_data_' . $this->source->id, $items, now()->addMinutes(10));
+            $rssService->fetchFeeds(collect([$this->source]), forceRefresh: true);
         } catch (\Exception $e) {
-            Log::error('Fehler beim Abrufen des Feeds: ' . $this->source->url, ['error' => $e->getMessage()]);
+            Log::error('Fehler beim Abrufen des Feeds: '.$this->source->url, ['error' => $e->getMessage()]);
         }
     }
 }
