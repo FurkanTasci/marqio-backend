@@ -28,20 +28,6 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/rss-sources/{id}', [RssSourceController::class, 'show']);
     Route::put('/rss-sources/{id}', [RssSourceController::class, 'update']);
     Route::delete('/rss-sources/{id}', [RssSourceController::class, 'destroy']);
-    // 
-    Route::get('rss-sources/top', [RssSourceController::class, 'topByCountry']);
-    /**
-     * @example 
-     *  - Top 10 Germany
-     *  GET /rss-sources/top?country_code=DE
-     * 
-     *  - Top Deutschland, only Featured
-     *  GET /rss-sources/top?country_code=DE&limit=5&featured_only=1
-     * 
-     *  - Top 20 USA
-     *  GET /rss-sources/top?country_code=US&limit=20
-     */
-
 
     Route::get('/favorite-rss-items', [FavoriteRssItemController::class, 'index']);
     Route::post('/favorite-rss-items', [FavoriteRssItemController::class, 'store']);

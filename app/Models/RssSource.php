@@ -12,20 +12,6 @@ class RssSource extends Model
 
     protected $fillable = [
         'url',
-        'title',
-        'site_url',
-        'country_code',
-        'language',
-        'category',
-        'is_featured',
-        'is_public',
-        'subscriber_count',
-    ];
-
-    protected $casts = [
-        'is_featured' => 'boolean',
-        'is_public' => 'boolean',
-        'subscriber_count' => 'integer',
     ];
 
     public function favoriteRssItems()
@@ -39,15 +25,4 @@ class RssSource extends Model
             ->withPivot('subscribed_at', 'is_active', 'name')  // Pivot-Felder hier angeben
             ->withTimestamps();
     }
-    
-    /**
-     * Optional: Relationship zu User Abos
-     */
-    public function subscribers()
-    {
-        return $this->belongsToMany(User::class, 'rss_source_user')
-            ->withPivot('name', 'is_active', 'subscribed_at')
-             ->withTimestamps();
-    }
-
 }
