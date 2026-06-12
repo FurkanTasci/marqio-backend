@@ -19,7 +19,7 @@ class BookmarkController extends Controller
     // Liste aller Bookmarks des authentifizierten Users
     public function index(Request $request)
     {
-        $bookmarks = Auth::user()->bookmarks()->with('tags')->latest()->get();
+        $bookmarks = Auth::user()->bookmarks()->with('tags')->latest()->cursorPaginate(20);
   
         if ($request->expectsJson()) {    
            return response()->json($bookmarks);
