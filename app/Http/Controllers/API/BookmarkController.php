@@ -209,5 +209,28 @@ class BookmarkController extends Controller
         $bookmark->delete();
         return response()->json(['message' => 'Bookmark deleted successfully']);
     }
+
+    public function search(Request $request)
+    {
+        $query = Bookmark::query()
+            ->with('tags')
+            ->select('id', 'url', 'title')
+            ->where('user_id', auth()->id());
+
+        if ($request->filled('search')) {
+            $search = $request->search;
+            $query->where(function($q) use ($search) {
+                $q
+                    ->where('title', 'like', "%$search%")
+                    ->orWhere('url', 'like', "%$search%");
+            })->orderByRaw("title LIKE ? DESC", ["%$search%"]); 
+        } else {
+            $query->latest();
+        }
+
+        return $query   
+            ->latest()
+            ->paginate(20);
+    }
 }
 
