@@ -199,10 +199,8 @@ class RssSourceController extends Controller
         $cacheKey = 'rss_feed_data_' . $rssSource->id;
         Cache::forget($cacheKey);
 
-        // Source wird auf nicht aktive gesetzt die Quellen bleibt bestehen
-        $rssSource->users()->updateExistingPivot(auth()->id(), [
-            'is_active' => false,
-        ]);
+         // Source wird auf nicht aktive gesetzt die Quellen bleibt bestehen
+        $rssSource->users()->detach(auth()->id());
 
         return response()->json([
             'message' => 'RSS-Quelle wurde erfolgreich gelöscht.',
