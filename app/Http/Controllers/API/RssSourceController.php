@@ -4,8 +4,11 @@ namespace App\Http\Controllers\API;
 
 use App\Http\Controllers\Controller;
 use App\Models\RssSource;
+use App\Models\RssSourceUser;
+use App\Models\RssSourceCatalog;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Http;
 use Inertia\Inertia;
 use Validator;
 
@@ -16,17 +19,56 @@ class RssSourceController extends Controller
      */
     public function index(Request $request)
     {
-        $rssSources = RssSource::whereHas('users', function ($query) {
-            $query->where('user_id', auth()->id());
-        })->with(['users' => function ($query) {
-            $query->withPivot('name', 'is_active'); // Pivot-Daten 'name' und 'is_active' laden
-        }])->get();
+        $userId = $request->user()->id;
 
-        $rssSources->map(function ($source) {
-            $cacheKey = 'rss_feed_data_' . $source->id;
-            $items = Cache::get($cacheKey);
+        $rssSources = RssSource::query()
+            ->whereHas('users', function ($query) use ($userId) {
+                $query->where('user_id', $userId);
+            })
+            ->with([
+                'users' => function ($query) use ($userId) {
+                    $query
+                        ->where('user_id', $userId)
+                        ->withPivot([
+                            'rss_source_id',
+                            'user_id',
+                            'subscribed_at',
+                            'is_active',
+                            'name',
+                            'created_at',
+                            'updated_at',
+                        ]);
+                }
+            ])
+            ->latest('id')
+            ->get();
 
-            if ($items && is_array($items)) {
+        /*
+        |--------------------------------------------------------------------------
+        | Cache optimiert laden
+        |--------------------------------------------------------------------------
+        */
+
+        $cacheKeys = $rssSources
+            ->mapWithKeys(fn ($source) => [
+                'rss_feed_data_' . $source->id => null
+            ])
+            ->keys()
+            ->toArray();
+
+        $cachedFeeds = Cache::many($cacheKeys);
+
+        /*
+        |--------------------------------------------------------------------------
+        | Daten anreichern
+        |--------------------------------------------------------------------------
+        */
+
+        $rssSources->transform(function ($source) use ($cachedFeeds) {
+
+            $items = $cachedFeeds['rss_feed_data_' . $source->id] ?? null;
+
+            if (is_array($items)) {
                 $source->item_count = count($items);
                 $source->last_activity_at = $items[0]['pubDate'] ?? null;
             } else {
@@ -37,24 +79,15 @@ class RssSourceController extends Controller
             return $source;
         });
 
-        /*
-        return response()->json([
-            'rss_sources' => $rssSources,
-        ], 200);
-        */
-
-        if ($request->expectsJson()) {    
-            return response()->json([
-                'rss_sources' => $rssSources
-            ]);
-        }   
-
-        // print_r($rssSources);
-
-        // Wenn der Request eine Inertia-Seite erwartet
-        return Inertia::render('rss-sources', [
+        $response = [
             'rss_sources' => $rssSources
-        ]);
+        ];
+
+        if ($request->expectsJson()) {
+            return response()->json($response);
+        }
+
+        return Inertia::render('rss-sources', $response);
     }
 
     /**
@@ -75,9 +108,16 @@ class RssSourceController extends Controller
         }
 
         // Überprüfen, ob es sich um eine OPML-Datei handelt
+        /*
         if ($this->isOpml($request->input('url'))) {
             return response()->json([
                 'error' => 'Die angegebene URL verweist auf eine OPML-Datei, die nicht gespeichert werden kann.',
+            ], 422);
+        }
+        */
+        if (! $this->isFeedUrl($request->input('url'))) {
+            return response()->json([
+                'error' => 'Die URL scheint kein gültiger RSS/Atom Feed zu sein.',
             ], 422);
         }
 
@@ -118,55 +158,92 @@ class RssSourceController extends Controller
     }
 
     /**
-     * Überprüfen, ob die URL ein gültiger RSS-Feed ist.
+     * Anstatt von isOpml nutzen
      */
-    private function isValidRssFeed($url)
+    private function isFeedUrl(string $url): bool
     {
         try {
-            $ch = curl_init($url);
-            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-            curl_setopt($ch, CURLOPT_NOBODY, true); // Nur den Header abrufen
-            curl_setopt($ch, CURLOPT_TIMEOUT, 10); // Timeout für die Anfrage
-            curl_exec($ch);
+            $response = Http::timeout(5)
+                ->withHeaders([
+                    'User-Agent' => 'FeedValidator/1.0',
+                    'Accept' => 'application/rss+xml, application/xml, text/xml, */*',
+                ])
+                ->get($url);
 
-            // Content-Type überprüfen
-            $contentType = curl_getinfo($ch, CURLINFO_CONTENT_TYPE);
-            curl_close($ch);
+            if (!$response->successful()) {
+                return false;
+            }
 
-            return (strpos($contentType, 'rss+xml') !== false) || (strpos($contentType, 'xml') !== false);
-        } catch (\Exception $e) {
+            $body = trim($response->body());
+
+            // 1. schnelle Heuristik (Performance wichtig)
+            if (
+                stripos($body, '<rss') === false &&
+                stripos($body, '<feed') === false &&
+                stripos($body, '<rdf:RDF') === false &&
+                stripos($body, 'xml') === false
+            ) {
+                return false;
+            }
+
+            // 2. XML parsing (robuster Check)
+            libxml_use_internal_errors(true);
+            $xml = simplexml_load_string($body);
+
+            if (!$xml) {
+                return false;
+            }
+
+            $root = strtolower($xml->getName());
+
+            // 3. erlaubte Feed-Typen
+            return in_array($root, [
+                'rss',     // RSS 2.0
+                'feed',    // Atom
+                'rdf'      // RSS 1.0
+            ], true);
+
+        } catch (\Throwable $e) {
             return false;
         }
     }
 
     /**
      * Überprüfen, ob die URL eine OPML-Datei ist.
-     */
-    private function isOpml($url)
-    {
-        try {
-            $ch = curl_init($url);
-            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-            curl_setopt($ch, CURLOPT_NOBODY, true); // Nur den Header abrufen
-            curl_setopt($ch, CURLOPT_TIMEOUT, 10); // Timeout für die Anfrage
-            curl_exec($ch);
+        private function isOpml(string $url): bool
+        {
+            try {
+                $response = Http::timeout(5)
+                    ->withHeaders([
+                        'User-Agent' => 'RSSChecker/1.0',
+                    ])
+                    ->get($url);
 
-            $contentType = curl_getinfo($ch, CURLINFO_CONTENT_TYPE);
-            curl_close($ch);
+                if (!$response->successful()) {
+                    return false;
+                }
 
-            if (strpos($contentType, 'xml') === false) {
+                $body = $response->body();
+
+                // schneller Check bevor XML parsing
+                if (stripos($body, '<opml') === false) {
+                    return false;
+                }
+
+                libxml_use_internal_errors(true);
+                $xml = simplexml_load_string($body);
+
+                if (!$xml) {
+                    return false;
+                }
+
+                return strtolower($xml->getName()) === 'opml';
+
+            } catch (\Throwable $e) {
                 return false;
             }
-
-            // Versuche den Inhalt der URL zu lesen und zu überprüfen
-            $xmlContent = file_get_contents($url);
-            $xml = simplexml_load_string($xmlContent);
-
-            return ($xml && $xml->getName() === 'opml');
-        } catch (\Exception $e) {
-            return false;
         }
-    }
+    */
 
     /**
      * Remove the specified RSS source.
@@ -199,7 +276,7 @@ class RssSourceController extends Controller
         $cacheKey = 'rss_feed_data_' . $rssSource->id;
         Cache::forget($cacheKey);
 
-         // Source wird auf nicht aktive gesetzt die Quellen bleibt bestehen
+        // Source wird auf nicht aktive gesetzt die Quellen bleibt bestehen
         $rssSource->users()->detach(auth()->id());
 
         return response()->json([
@@ -210,7 +287,7 @@ class RssSourceController extends Controller
     /**
      * Aktualisiere das Abonnement eines Benutzers für eine RSS-Quelle.
      */
-    public function updateSubscription(Request $request, $rssSourceId)
+    public function unsubscribe(Request $request, $rssSourceId)
     {
         $rssSource = RssSource::find($rssSourceId);
 
@@ -220,22 +297,121 @@ class RssSourceController extends Controller
             ], 404);
         }
 
-        // Überprüfen, ob der Benutzer bereits abonniert hat
         if (!$rssSource->users->contains(auth()->id())) {
             return response()->json([
                 'error' => 'Benutzer ist nicht für diese Quelle abonniert.',
             ], 400);
         }
 
-        // Abonnement aktualisieren (z. B. das `subscribed_at`-Datum setzen)
-        $rssSource->users()->updateExistingPivot(auth()->id(), [
+        // Pivot-Eintrag komplett entfernen
+        $rssSource->users()->detach(auth()->id());
+
+        return response()->json([
+            'message' => 'Abonnement wurde erfolgreich entfernt.',
+        ], 200);
+    }
+
+    private static function getHostname(string $url): string
+    {
+        $host = parse_url($url, PHP_URL_HOST);
+
+        if (!$host) {
+            return '';
+        }
+
+        $host = preg_replace('/^www\./', '', $host);
+        $parts = explode('.', $host);
+
+        $count = count($parts);
+
+        $name = $count <= 2
+            ? $parts[0]
+            : $parts[$count - 2];
+
+        return ucfirst($name);
+    }
+
+   public function subscribe(Request $request, $rssSourceId)
+    {
+        $rssSource = RssSource::findOrFail($rssSourceId);
+
+        $userId = $request->user()->id;
+
+        $existing = $rssSource->users()
+            ->where('user_id', $userId)
+            ->first();
+
+        $payload = [
             'subscribed_at' => now(),
-            'is_active' => true, // Optional, falls du die Aktivität des Abonnements ändern willst
-            'name' => $request->input('name'), // Optional, falls der Name des Abonnements geändert wird
+            'is_active' => true,
+        ];
+
+        $existingName = $existing?->pivot?->name;
+
+        if ($existingName) {
+            $payload['name'] = $existingName;
+        } else {
+            $payload['name'] = $request->filled('name')
+                ? $request->input('name')
+                : self::getHostname($rssSource->url);
+        }
+
+        $rssSource->users()->syncWithoutDetaching([
+            $userId => $payload
         ]);
 
         return response()->json([
-            'message' => 'Abonnement für diese RSS-Quelle wurde aktualisiert.',
-        ], 200);
+            'message' => 'Successfully subscribed',
+        ]);
+    }
+
+    public function getCatalog(Request $request)
+    {
+        $userId = $request->user()->id;
+
+        // Alle abonnierten RSS Source IDs des Users (über Model)
+        $subscribedIds = RssSourceUser::where('user_id', $userId)
+            ->pluck('rss_source_id')
+            ->toArray();
+
+        // Catalog Query
+        $query = RssSourceCatalog::with('source');
+
+        if ($request->filled('country')) {
+            $query->where('country', $request->country);
+        }
+
+        if ($request->filled('category')) {
+            $query->where('category', $request->category);
+        }
+
+        $catalog = $query
+            ->orderByDesc('is_featured')
+            ->orderByDesc('rank')
+            ->get()
+            ->map(function ($item) use ($subscribedIds) {
+                return [
+                    'id' => $item->id,
+                    'rss_source_id' => $item->rss_source_id,
+                    'country' => $item->country,
+                    'category' => $item->category,
+                    'rank' => $item->rank,
+                    'is_featured' => $item->is_featured,
+
+                    'source' => [
+                        'id' => $item->source->id,
+                        'url' => $item->source->url,
+                    ],
+
+                    'is_subscribed' => in_array(
+                        $item->rss_source_id,
+                        $subscribedIds
+                    ),
+                ];
+            });
+
+        return response()->json([
+            'data' => $catalog
+        ]);
     }
 }
