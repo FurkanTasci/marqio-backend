@@ -25,4 +25,9 @@ class RssSource extends Model
             ->withPivot('subscribed_at', 'is_active', 'name')  // Pivot-Felder hier angeben
             ->withTimestamps();
     }
+
+    public function catalog()
+    {
+        return $this->hasOne(RssSourceCatalog::class);
+    }
 }

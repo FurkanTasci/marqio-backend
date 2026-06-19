@@ -24,6 +24,9 @@ Route::middleware('auth:sanctum')->group(function () {
 
     Route::get('/rss-feed', [RssController::class, 'getUserFeeds']);
     Route::get('/rss-feed/{sourceId}', [RssController::class, 'getSourceFeeds']);
+    Route::get('/rss-top', [RssSourceController::class, 'getCatalog']);
+    Route::post('/rss-sources/{id}/subscribe', [RssSourceController::class, 'subscribe']);
+    Route::patch('/rss-sources/{id}/unsubscribe', [RssSourceController::class, 'unsubscribe']);
     Route::get('/rss-sources', [RssSourceController::class, 'index']);
     Route::post('/rss-sources', [RssSourceController::class, 'store']);
     Route::get('/rss-sources/{id}', [RssSourceController::class, 'show']);
