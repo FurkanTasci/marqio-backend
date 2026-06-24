@@ -443,4 +443,45 @@ class RssSourceController extends Controller
             'data' => $catalog
         ]);
     }
+
+    /**
+     * Aktualisiert den Namen einer RSS-Quelle für den aktuellen Benutzer.
+     */
+    public function update(Request $request, $id)
+    {
+        $validator = Validator::make($request->all(), [
+            'name' => ['required', 'string', 'max:255'],
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'errors' => $validator->errors(),
+            ], 422);
+        }
+
+        $rssSource = RssSource::find($id);
+
+        if (! $rssSource) {
+            return response()->json([
+                'error' => 'RSS-Quelle nicht gefunden.',
+            ], 404);
+        }
+
+        // Prüfen ob der Benutzer die Quelle abonniert hat
+        if (! $rssSource->users()->where('user_id', auth()->id())->exists()) {
+            return response()->json([
+                'error' => 'Nicht autorisiert.',
+            ], 403);
+        }
+
+        $rssSource->users()->syncWithoutDetaching([
+            auth()->id() => [
+                'name' => $request->input('name'),
+            ]
+        ]);
+
+        return response()->json([
+            'message' => 'Name erfolgreich aktualisiert.',
+        ]);
+    }
 }
