@@ -133,15 +133,7 @@ class RssSourceController extends Controller
 
         $name = $request->input('name');
         if (empty($name)) {
-            $urlHost = parse_url($request->input('url'), PHP_URL_HOST);
-
-            $domainParts = explode('.', $urlHost);
-            
-            if (count($domainParts) > 2) {
-                $name = ucfirst($domainParts[count($domainParts) - 2]);
-            } else {
-                $name = ucfirst($domainParts[0]);
-            } 
+            $name = self::getDomainName($request->input('url')); 
         }
 
         // Die 'name' und 'is_active' in der Pivot-Tabelle 'rss_source_user' speichern
@@ -311,24 +303,61 @@ class RssSourceController extends Controller
         ], 200);
     }
 
-    private static function getHostname(string $url): string
+     private static function getDomainName(string $url): string
     {
         $host = parse_url($url, PHP_URL_HOST);
 
-        if (!$host) {
+        if (! $host) {
+            $host = parse_url('https://' . ltrim($url, '/'), PHP_URL_HOST);
+        }
+
+        if (! $host) {
             return '';
         }
 
-        $host = preg_replace('/^www\./', '', $host);
+        $host = strtolower(trim($host));
+
+        // www entfernen
+        $host = preg_replace('/^www\./i', '', $host);
+
+        // localhost / IP-Adressen direkt zurückgeben
+        if (
+            filter_var($host, FILTER_VALIDATE_IP) ||
+            $host === 'localhost'
+        ) {
+            return $host;
+        }
+
         $parts = explode('.', $host);
 
-        $count = count($parts);
+        if (count($parts) <= 2) {
+            return $host;
+        }
 
-        $name = $count <= 2
-            ? $parts[0]
-            : $parts[$count - 2];
+        $secondLevelDomains = [
+            'ac',
+            'co',
+            'com',
+            'edu',
+            'gov',
+            'net',
+            'org',
+            'mil',
+        ];
 
-        return ucfirst($name);
+        $tld = $parts[count($parts) - 1];
+        $sld = $parts[count($parts) - 2];
+
+        // z.B. bbc.co.uk, abc.com.au, foo.org.nz
+        if (
+            strlen($tld) === 2 &&
+            in_array($sld, $secondLevelDomains, true) &&
+            count($parts) >= 3
+        ) {
+            return implode('.', array_slice($parts, -3));
+        }
+
+        return implode('.', array_slice($parts, -2));
     }
 
    public function subscribe(Request $request, $rssSourceId)
@@ -353,7 +382,7 @@ class RssSourceController extends Controller
         } else {
             $payload['name'] = $request->filled('name')
                 ? $request->input('name')
-                : self::getHostname($rssSource->url);
+                : self::getDomainName($rssSource->url);
         }
 
         $rssSource->users()->syncWithoutDetaching([
