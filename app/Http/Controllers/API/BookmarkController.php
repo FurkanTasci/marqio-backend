@@ -222,7 +222,10 @@ class BookmarkController extends Controller
             $query->where(function($q) use ($search) {
                 $q
                     ->where('title', 'like', "%$search%")
-                    ->orWhere('url', 'like', "%$search%");
+                    ->orWhere('url', 'like', "%$search%")
+                    ->orWhereHas('tags', function ($tagQuery) use ($search) {
+                        $tagQuery->where('name', 'like', "%{$search}%");
+                    });
             })->orderByRaw("title LIKE ? DESC", ["%$search%"]); 
         } else {
             $query->latest();
