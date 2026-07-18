@@ -235,5 +235,32 @@ class BookmarkController extends Controller
             ->latest()
             ->paginate(20);
     }
+
+    public function exportJson()
+    {
+        $bookmarks = Auth::user()
+            ->bookmarks()
+            ->with('tags')
+            ->latest()
+            ->get()
+            ->map(function ($bookmark) {
+                return [
+                    'title' => $bookmark->title,
+                    'url' => $bookmark->url,
+                    'description' => $bookmark->description,
+                    'created_at' => $bookmark->created_at,
+                    'updated_at' => $bookmark->updated_at,
+                    'tags' => $bookmark->tags->pluck('name')->values(),
+                ];
+            });
+
+        return response()->json([
+            'version' => 1,
+            'exported_at' => now()->toIso8601String(),
+            'bookmarks' => $bookmarks,
+        ], 200, [
+            'Content-Disposition' => 'attachment; filename="bookmarks.json"',
+        ]);
+    }
 }
 

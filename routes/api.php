@@ -17,6 +17,7 @@ Route::middleware('auth:sanctum')->group(function () {
     // Bookmarks
     Route::get('/bookmarks', [BookmarkController::class, 'index']);
     Route::get('/bookmarks/search', [BookmarkController::class, 'search']);
+    Route::get('/bookmarks/export', [BookmarkController::class, 'exportHtml'])->middleware('throttle:5,1');
     Route::post('/bookmarks', [BookmarkController::class, 'store']);
     Route::delete('/bookmarks/{bookmark}', [BookmarkController::class, 'destroy']);
     Route::patch('/bookmarks/{bookmark}', [BookmarkController::class, 'update']);
