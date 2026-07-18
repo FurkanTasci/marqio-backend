@@ -236,7 +236,7 @@ class BookmarkController extends Controller
             ->paginate(20);
     }
 
-    public function exportJson()
+    public function exportHtml()
     {
         $bookmarks = Auth::user()
             ->bookmarks()
