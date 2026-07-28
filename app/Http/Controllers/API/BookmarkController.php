@@ -12,6 +12,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\Rule;
+use Illuminate\Support\Str;
 use Inertia\Inertia;
 
 class BookmarkController extends Controller
@@ -138,9 +139,13 @@ class BookmarkController extends Controller
         }
 
         $host = preg_replace('/^www\./', '', $host);
+        $bookmarkTitle = Str::of($title ?: $host)
+            ->squish()
+            ->limit(255, '')
+            ->toString();
 
         $bookmark = Auth::user()->bookmarks()->create([
-            'title'       => $title ?? $host,
+            'title'       => $bookmarkTitle,
             'url'         => $url,
             'description' => $description,
             'image'       => $image,
@@ -263,4 +268,3 @@ class BookmarkController extends Controller
         ]);
     }
 }
-
