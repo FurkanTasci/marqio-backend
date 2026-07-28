@@ -60,8 +60,8 @@ class RssFeedOptimizationTest extends TestCase
             ],
         ]);
 
-        $response->assertJsonFragment(['source_name' => $source1->name]);
-        $response->assertJsonFragment(['source_name' => $source2->name]);
+        $response->assertJsonFragment(['source_name' => 'Feed 1']);
+        $response->assertJsonFragment(['source_name' => 'Feed 2']);
     }
 
     public function test_feed_pub_date_is_returned_with_timezone()

@@ -78,35 +78,20 @@ class RssService
     private function sortResultsByNewestPubDate(array $results): array
     {
         usort($results, function ($a, $b) {
-            // Get the newest pubDate from each source's items
-            $newestA = $this->getNewestPubDate($a['items'] ?? []);
-            $newestB = $this->getNewestPubDate($b['items'] ?? []);
+            $newestA = $a['_latest_pub_date_ts'] ?? 0;
+            $newestB = $b['_latest_pub_date_ts'] ?? 0;
 
             // Sort in descending order (newest first)
             return $newestB <=> $newestA;
         });
 
+        $results = array_map(function (array $result) {
+            unset($result['_latest_pub_date_ts']);
+
+            return $result;
+        }, $results);
+
         return $results;
-    }
-
-    /**
-     * Get the newest pubDate timestamp from an array of items.
-     */
-    private function getNewestPubDate(array $items): int
-    {
-        if (empty($items)) {
-            return 0; // No items, put at the end
-        }
-
-        $newest = 0;
-        foreach ($items as $item) {
-            $timestamp = strtotime($item['pubDate'] ?? '1970-01-01 00:00:00');
-            if ($timestamp > $newest) {
-                $newest = $timestamp;
-            }
-        }
-
-        return $newest;
     }
 
     private function getCacheKey(RssSource $source): string
@@ -187,41 +172,55 @@ class RssService
 
     private function isValidImageUrl(string $url): bool
     {
-        // Whitelist von gültigen Bildendungen
-        $imageExtensions = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'bmp', 'ico'];
+        return Cache::remember(
+            $this->getImageValidationCacheKey($url),
+            now()->addDay(),
+            function () use ($url) {
+                // Whitelist von gültigen Bildendungen
+                $imageExtensions = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'bmp', 'ico'];
 
-        // Parse URL und extrahiere den Pfad
-        $parsedUrl = parse_url($url);
-        $path = $parsedUrl['path'] ?? '';
+                // Parse URL und extrahiere den Pfad
+                $parsedUrl = parse_url($url);
+                $path = $parsedUrl['path'] ?? '';
 
-        // Prüfe Dateiendung
-        $extension = strtolower(pathinfo($path, PATHINFO_EXTENSION));
+                // Prüfe Dateiendung
+                $extension = strtolower(pathinfo($path, PATHINFO_EXTENSION));
 
-        // Wenn klare Bildendung, akzeptieren
-        if (in_array($extension, $imageExtensions)) {
-            return true;
-        }
+                // Wenn klare Bildendung, akzeptieren
+                if (in_array($extension, $imageExtensions, true)) {
+                    return true;
+                }
 
-        // Wenn kein Query-String mit verdächtigen Parametern (z.B. cpx.php)
-        if (str_ends_with($path, '.php') || str_ends_with($path, '.cgi') || str_ends_with($path, '.html')) {
-            return false;
-        }
+                // Wenn kein Query-String mit verdächtigen Parametern (z.B. cpx.php)
+                if (str_ends_with($path, '.php') || str_ends_with($path, '.cgi') || str_ends_with($path, '.html')) {
+                    return false;
+                }
 
-        // Für URLs ohne klare Bildendung: HEAD-Request mit Timeout
-        try {
-            $response = Http::timeout(2)->head($url);
-            $contentType = $response->header('Content-Type') ?? '';
+                // Für URLs ohne klare Bildendung: HEAD-Request mit Timeout
+                try {
+                    $response = Http::timeout(2)->head($url);
+                    $contentType = $response->header('Content-Type') ?? '';
 
-            return str_starts_with($contentType, 'image/');
-        } catch (\Exception $e) {
-            Log::debug("Failed to validate image URL: {$url}", ['error' => $e->getMessage()]);
+                    return str_starts_with($contentType, 'image/');
+                } catch (\Exception $e) {
+                    Log::debug("Failed to validate image URL: {$url}", ['error' => $e->getMessage()]);
 
-            return false;
-        }
+                    return false;
+                }
+            }
+        );
     }
 
     private function formatFeedData(RssSource $source, array $items): array
     {
+        $latestPubDateTs = 0;
+        foreach ($items as $item) {
+            $timestamp = strtotime($item['pubDate'] ?? '1970-01-01 00:00:00');
+            if ($timestamp > $latestPubDateTs) {
+                $latestPubDateTs = $timestamp;
+            }
+        }
+
         // Sort items by pubDate in descending order (newest first)
         usort($items, function ($a, $b) {
             $dateA = strtotime($a['pubDate'] ?? '1970-01-01 00:00:00');
@@ -232,9 +231,23 @@ class RssService
 
         return [
             'id' => $source->id,
-            'name' => $source->name,
+            'name' => $this->getSourceName($source),
             'url' => $source->url,
             'items' => $items,
+            '_latest_pub_date_ts' => $latestPubDateTs,
         ];
+    }
+
+    private function getSourceName(RssSource $source): string
+    {
+        $relation = $source->relationLoaded('users') ? $source->users->first() : null;
+        $pivotName = $relation?->pivot?->name;
+
+        return $pivotName ?: $source->url;
+    }
+
+    private function getImageValidationCacheKey(string $url): string
+    {
+        return 'rss_image_valid_' . md5($url);
     }
 }

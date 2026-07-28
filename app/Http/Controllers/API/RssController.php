@@ -22,11 +22,17 @@ class RssController extends Controller
         $userId = $request->user()->id;
 
         // Holen der RSS-Quellen für den Benutzer (nur aktive Quellen)
-        $rssSources = RssSource::whereHas('users', function ($query) use ($userId) {
-            $query->where('user_id', $userId)->where('rss_source_user.is_active', true);
-        })->with(['users' => function ($query) use ($userId) {
-            $query->where('user_id', $userId)->withPivot('name', 'is_active');
-        }])->get();
+        $rssSources = RssSource::query()
+            ->select(['rss_sources.id', 'rss_sources.url'])
+            ->whereHas('users', function ($query) use ($userId) {
+                $query->where('user_id', $userId)->where('rss_source_user.is_active', true);
+            })
+            ->with(['users' => function ($query) use ($userId) {
+                $query->select('users.id')
+                    ->where('user_id', $userId)
+                    ->withPivot('name', 'is_active');
+            }])
+            ->get();
 
         // Abrufen der Feeds über den Service (optimiert & parallel)
         $feedsData = $this->rssService->fetchFeeds($rssSources);
@@ -50,15 +56,19 @@ class RssController extends Controller
         $userId = $request->user()->id;
 
         // Validierung: Überprüfung, dass die Source dem Benutzer gehört
-        $rssSource = RssSource::whereHas('users', function ($query) use ($userId, $sourceId) {
-            $query->where('user_id', $userId)
-                ->where('rss_source_user.rss_source_id', $sourceId)
-                ->where('rss_source_user.is_active', true);
-        })->with(['users' => function ($query) use ($userId, $sourceId) {
-            $query->where('user_id', $userId)
-                ->where('rss_source_user.rss_source_id', $sourceId)
-                ->withPivot('name', 'is_active');
-        }])->firstOrFail();
+        $rssSource = RssSource::query()
+            ->select(['rss_sources.id', 'rss_sources.url'])
+            ->whereKey($sourceId)
+            ->whereHas('users', function ($query) use ($userId) {
+                $query->where('user_id', $userId)
+                    ->where('rss_source_user.is_active', true);
+            })
+            ->with(['users' => function ($query) use ($userId) {
+                $query->select('users.id')
+                    ->where('user_id', $userId)
+                    ->withPivot('name', 'is_active');
+            }])
+            ->firstOrFail();
 
         // Abrufen der Feeds für diese spezifische Source
         $feedsData = $this->rssService->fetchFeeds(collect([$rssSource]));
